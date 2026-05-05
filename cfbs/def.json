@@ -1,0 +1,6 @@
+{
+  "inputs": [ "services/cfbs/modules/clamav/main.cf" ],
+  "vars": {
+    "control_common_bundlesequence_end": [ "clamav:main" ]
+  }
+}

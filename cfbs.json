@@ -1,0 +1,21 @@
+{
+  "name": "clamav",
+  "type": "module",
+  "description": "Automates the installation, scanning, and reporting of ClamAV antivirus software.",
+  "provides": {
+    "clamav": {
+      "description": "Automates the installation, scanning, and reporting of ClamAV antivirus software.",
+      "tags": [
+        "experimental",
+        "inventory",
+        "security"
+      ],
+      "repo": "https://github.com/aleksandrychev/cfengine-clamav",
+      "by": "https://github.com/aleksandrychev",
+      "steps": [
+        "copy policy/main.cf services/cfbs/modules/clamav/main.cf",
+        "json cfbs/def.json def.json"
+      ]
+    }
+  }
+}

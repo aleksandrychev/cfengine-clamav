@@ -1,0 +1,495 @@
+body file control
+{
+  namespace => "clamav";
+}
+
+body contain silent
+# @brief Suppress the command's stdout/stderr from CFEngine's log. The full
+# scan output still goes to the --log=<file> argument; inventory parses that.
+{
+  no_output => "true";
+}
+
+body classes clamscan_accept_codes
+# @brief clamscan exit codes: 0 = clean, 1 = virus found, 2 = error(s) during
+# scan (e.g. file in use, ACL denial). All three mean "scan completed and
+# produced a usable log"; the inventory bundle surfaces detections.
+{
+  repaired_returncodes => { "0", "1", "2" };
+}
+
+bundle agent globals
+{
+  vars:
+    any::
+      "max_age_days"
+        string => "3",
+        unless => isvariable($(this.promiser)),
+        comment => "Days the existing scan report may age before a fresh scan is forced.";
+
+      "signature_max_age_hours"
+        string => "48",
+        unless => isvariable($(this.promiser)),
+        comment => "Hours between freshclam invocations.";
+
+      "clamav_version"
+        string => "1.5.4",
+        unless => isvariable($(this.promiser));
+
+      "clamav_base_url"
+        string => "https://www.clamav.net/downloads/production",
+        unless => isvariable($(this.promiser));
+
+    linux::
+      # Upstream clamav.net .deb/.rpm packages install under /usr/local/.
+      "clamscan_linux"
+        string => "/usr/local/bin/clamscan",
+        unless => isvariable($(this.promiser));
+
+      "scan_target_linux"
+        slist => { "/home", "/root", "/tmp", "/var/tmp" },
+        unless => isvariable($(this.promiser));
+
+      "exclude_dirs_linux"
+        slist => {
+          "^/proc",
+          "^/sys",
+          "^/dev",
+          "^/run",
+          "^/var/lib/clamav",
+          "^/var/cfengine",
+        },
+        unless => isvariable($(this.promiser));
+
+      "report_dir_linux"
+        string => "/var/log/clamav",
+        unless => isvariable($(this.promiser));
+
+      "report_data_linux"
+        string => "$(report_dir_linux)/clamav-scan.log",
+        unless => isvariable($(this.promiser));
+
+      "freshclam_linux"
+        string => "/usr/local/bin/freshclam",
+        unless => isvariable($(this.promiser));
+
+      "freshen_marker_linux"
+        string => "$(report_dir_linux)/.cfengine_last_freshen",
+        unless => isvariable($(this.promiser));
+
+      "signature_dir_linux"
+        string => "/usr/local/share/clamav",
+        unless => isvariable($(this.promiser));
+
+      # Upstream package URL is built from clamav_version + arch + format.
+      # We only support x86_64 and aarch64 on Linux per the supported matrix.
+      "linux_arch"
+        string => ifelse("aarch64", "aarch64", "x86_64"),
+        unless => isvariable($(this.promiser));
+
+      "linux_pkg_format"
+        string => ifelse("debian", "deb", "redhat", "rpm", ""),
+        unless => isvariable($(this.promiser));
+
+      "linux_pkg_url"
+        string => "$(clamav_base_url)/clamav-$(clamav_version).linux.$(linux_arch).$(linux_pkg_format)",
+        unless => isvariable($(this.promiser));
+
+      "linux_pkg_path"
+        string => "/var/tmp/clamav-$(clamav_version).$(linux_pkg_format)",
+        unless => isvariable($(this.promiser));
+
+      # Pre-computed args (join/maplist need the slists in the local bundle).
+      "scan_target_linux_str" string => join(" ", "scan_target_linux");
+
+      "_exclude_args_linux"
+        slist => maplist("--exclude-dir=$(this)", "exclude_dirs_linux");
+
+      "exclude_args_linux" string => join(" ", "_exclude_args_linux");
+
+  classes:
+    "clamav_supported_platform"
+      scope => "namespace",
+      meta => { "report" },
+      expression => "linux";
+}
+
+bundle agent main
+{
+  methods:
+    "globals";
+    "install";
+    "freshen";
+    "audit";
+    "inventory";
+}
+
+bundle agent install
+{
+  methods:
+    linux::
+      "linux" usebundle => install_linux;
+
+  reports:
+    windows::
+      "$(this.bundle): Windows is not supported yet — support is coming soon";
+
+    !clamav_supported_platform.!windows::
+      "$(this.bundle): unsupported platform, skipping ClamAV install";
+}
+
+bundle agent install_linux
+# @brief Download the upstream ClamAV .deb/.rpm from clamav.net and install
+# it locally. The upstream packages land under /usr/local/, independent of
+# distro packaging.
+{
+  methods:
+    "user" usebundle => install_linux_user;
+    "download" usebundle => install_linux_download;
+    "install" usebundle => install_linux_pkg;
+}
+
+bundle agent install_linux_user
+# @brief Create the 'clamav' user. Distro packages do this in postinst; the
+# upstream clamav.net packages do not, and freshclam refuses to start if
+# the user is missing (it tries to drop privileges to it).
+{
+  vars:
+    linux::
+      "home_dir" string => "$(globals.signature_dir_linux)";
+
+  users:
+    linux::
+      "clamav"
+        policy => "present",
+        description => "ClamAV antivirus",
+        home_dir => "$(home_dir)",
+        shell => "/sbin/nologin";
+}
+
+bundle agent install_linux_download
+{
+  vars:
+    "pkg_url" string => "$(globals.linux_pkg_url)";
+    "pkg_path" string => "$(globals.linux_pkg_path)";
+
+  commands:
+    "$(default:paths.curl)"
+      handle => "fetch_clamav_pkg_using_curl",
+      arglist => {
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--location",
+        "--output",
+        "$(pkg_path)",
+        "$(pkg_url)",
+      },
+      if => and(
+        not(fileexists("$(pkg_path)")), "default:_stdlib_path_exists_curl"
+      ),
+      comment => "Fetch upstream ClamAV package from clamav.net";
+
+  reports:
+    !(debian|redhat)::
+      "$(this.bundle): no download mapping for this Linux distribution";
+}
+
+bundle agent install_linux_pkg
+{
+  vars:
+    "pkg_path" string => "$(globals.linux_pkg_path)";
+
+  classes:
+    "_pkg_present" expression => fileexists("$(pkg_path)");
+
+  packages:
+    _pkg_present.debian::
+      "$(pkg_path)"
+        policy => "present",
+        package_module => default:apt_get,
+        comment => "Install upstream ClamAV .deb (apt-get resolves any system deps)";
+
+    _pkg_present.redhat::
+      "$(pkg_path)"
+        policy => "present",
+        package_module => default:yum,
+        comment => "Install upstream ClamAV .rpm (yum/dnf resolves any system deps)";
+
+  reports:
+    !_pkg_present::
+      "$(this.bundle): package not found at $(pkg_path), skipping install";
+
+    !(debian|redhat)::
+      "$(this.bundle): no install handler for this Linux distribution";
+}
+
+bundle agent freshen
+# @brief Run freshclam when the last attempt is older than
+# $(globals.signature_max_age_hours) or clamav:want_freshen_now is defined.
+# A marker file is touched on every attempt, success or failure, so retries
+# wait at least that long.
+#
+# Note: on Debian/Ubuntu the clamav-freshclam daemon locks the database,
+# making this run fail. Disable it if CFEngine should be the sole updater:
+# systemctl disable --now clamav-freshclam
+{
+  methods:
+    linux::
+      "linux" usebundle => freshen_linux;
+}
+
+bundle agent freshen_linux
+{
+  vars:
+    "freshclam" string => "$(globals.freshclam_linux)";
+    "marker" string => "$(globals.freshen_marker_linux)";
+    "max_age_hours" string => "$(globals.signature_max_age_hours)";
+    "config_path" string => "/usr/local/etc/freshclam.conf";
+    "signature_dir" string => "$(globals.signature_dir_linux)";
+    "report_dir" string => "$(globals.report_dir_linux)";
+    "_daily_cld" string => "$(signature_dir)/daily.cld";
+    "_daily_cvd" string => "$(signature_dir)/daily.cvd";
+
+    "marker_mtime"
+      string => filestat("$(marker)", "mtime"),
+      if => fileexists("$(marker)");
+
+    "marker_age_hours"
+      string => format(
+        "%d", eval("($(sys.systime) - $(marker_mtime))/3600", math, infix)
+      ),
+      if => isvariable("marker_mtime");
+
+  classes:
+    "freshclam_present" expression => fileexists("$(freshclam)");
+    "_marker_missing" not => fileexists("$(marker)");
+
+    "_marker_stale"
+      expression => isgreaterthan("$(marker_age_hours)", "$(max_age_hours)"),
+      if => isvariable("marker_age_hours");
+
+    "_no_signatures"
+      not => or(fileexists("$(_daily_cld)"), fileexists("$(_daily_cvd)"));
+
+  files:
+    freshclam_present::
+      # Upstream ClamAV ships /usr/local/etc/freshclam.conf.sample only;
+      # write a minimal working config so freshclam can run.
+      "$(config_path)"
+        create => "true",
+        content => "# Managed by CFEngine clamav module
+DatabaseMirror database.clamav.net
+DatabaseDirectory $(signature_dir)
+UpdateLogFile $(report_dir)/freshclam.log
+",
+        comment => "Minimal freshclam config; upstream package ships only the .sample";
+
+      "$(signature_dir)/."
+        create => "true",
+        perms => default:mog("0750", "clamav", "clamav"),
+        comment => "Freshclam writes the signature DB here as the clamav user";
+
+      "$(report_dir)/."
+        create => "true",
+        perms => default:mog("0750", "clamav", "clamav"),
+        comment => "Freshclam writes its log here as the clamav user";
+
+    freshclam_present.(_marker_missing|_marker_stale|_no_signatures|want_freshen_now)::
+      "$(marker)"
+        create => "true",
+        touch => "true",
+        comment => "Mark this freshen attempt so we don't re-run for max_age_hours";
+
+  commands:
+    freshclam_present.(_marker_missing|_marker_stale|_no_signatures|want_freshen_now)::
+      "$(freshclam)" args => "--quiet";
+}
+
+bundle agent audit
+# @brief Run clamscan and write a report when one is missing, stale, or when
+# the class clamav:want_scan_now is defined.
+#
+# Force an immediate scan: cf-agent -KI --define clamav:want_scan_now
+{
+  methods:
+    linux::
+      "linux" usebundle => audit_linux;
+}
+
+bundle agent audit_linux
+{
+  vars:
+    "clamscan" string => "$(globals.clamscan_linux)";
+    "report_data" string => "$(globals.report_data_linux)";
+    "max_age_days" string => "$(globals.max_age_days)";
+    "scan_target_str" string => "$(globals.scan_target_linux_str)";
+    "exclude_args" string => "$(globals.exclude_args_linux)";
+    "_daily_cld" string => "$(globals.signature_dir_linux)/daily.cld";
+    "_daily_cvd" string => "$(globals.signature_dir_linux)/daily.cvd";
+
+    "report_mtime"
+      string => filestat("$(report_data)", "mtime"),
+      if => fileexists("$(report_data)");
+
+    "report_age_days"
+      string => format(
+        "%d", eval("($(sys.systime) - $(report_mtime))/86400", math, infix)
+      ),
+      if => isvariable("report_mtime");
+
+  classes:
+    "clamav_present" expression => fileexists("$(clamscan)");
+
+    "signatures_present"
+      expression => or(
+        fileexists("$(_daily_cld)"), fileexists("$(_daily_cvd)")
+      );
+
+    "_report_missing" not => fileexists("$(report_data)");
+
+    "_report_stale"
+      expression => isgreaterthan("$(report_age_days)", "$(max_age_days)"),
+      if => isvariable("report_age_days");
+
+  files:
+    clamav_present::
+      "$(globals.report_dir_linux)/."
+        create => "true",
+        comment => "Ensure the report directory exists before clamscan writes to it";
+
+      "$(report_data)"
+        create => "true",
+        comment => "Ensure the report file exists";
+
+  commands:
+    clamav_present.signatures_present.(_report_missing|want_scan_now|_report_stale)::
+      "$(clamscan)"
+        args => "--recursive --infected --log=$(report_data) $(exclude_args) $(scan_target_str)",
+        contain => silent,
+        classes => clamscan_accept_codes;
+
+  reports:
+    clamav_present.!signatures_present::
+      "$(this.bundle): no ClamAV signatures present in $(globals.signature_dir_linux); waiting for first freshclam run";
+}
+
+bundle agent inventory
+# @brief Parse the ClamAV scan log and inventory interesting data
+{
+  methods:
+    linux::
+      "linux" usebundle => inventory_linux;
+}
+
+bundle agent inventory_linux
+{
+  vars:
+    "report_data" string => "$(globals.report_data_linux)";
+
+    # The clamscan summary section is "Key: Value" pairs.
+    # Splitting on ":\s+" (colon followed by whitespace) gives us a 2-D array
+    # keyed by the field name; e.g. $(kv[Engine version]) = "1.4.4".
+    # Unwanted lines (banners, FOUND entries) are simply not referenced.
+    "kv"
+      data => data_readstringarray("$(report_data)", "", ":\s+", inf, inf),
+      if => fileexists("$(report_data)");
+
+    "engine_version"
+      string => "$(kv[Engine version])",
+      meta => { "inventory", "attribute_name=ClamAV Engine version" },
+      if => isvariable("kv[Engine version]");
+
+    "known_viruses"
+      string => "$(kv[Known viruses])",
+      meta => { "inventory", "attribute_name=ClamAV Signature count" },
+      if => isvariable("kv[Known viruses]");
+
+    "scanned_files"
+      string => "$(kv[Scanned files])",
+      meta => { "inventory", "attribute_name=ClamAV Scanned files" },
+      if => isvariable("kv[Scanned files]");
+
+    "infected_files"
+      string => "$(kv[Infected files])",
+      meta => { "inventory", "attribute_name=ClamAV Infected files" },
+      if => isvariable("kv[Infected files]");
+
+    "data_scanned"
+      string => "$(kv[Data scanned])",
+      meta => { "inventory", "attribute_name=ClamAV Data scanned" },
+      if => isvariable("kv[Data scanned]");
+
+    "end_date"
+      string => "$(kv[End Date])",
+      meta => { "inventory", "attribute_name=ClamAV last scan completed" },
+      if => isvariable("kv[End Date]");
+
+    # Pull out lines describing detected threats: "/path/file: Sig FOUND"
+    "all_lines"
+      slist => readstringlist("$(report_data)", "", "\n", inf, inf),
+      if => fileexists("$(report_data)");
+
+    "infections"
+      slist => filter(".*: .* FOUND$", "all_lines", "true", "false", "inf"),
+      meta => { "inventory", "attribute_name=ClamAV Detected threats" },
+      if => isvariable("all_lines");
+
+    # Signature DB freshness. The patched form (daily.cld) shows up after
+    # the first freshclam update; the original daily.cvd is what ships
+    # with clamav-data. Take whichever exists — newest wins.
+    "_daily_cld" string => "$(globals.signature_dir_linux)/daily.cld";
+    "_daily_cvd" string => "$(globals.signature_dir_linux)/daily.cvd";
+
+    "signature_db_path"
+      string => ifelse(
+        fileexists("$(_daily_cld)"),
+        "$(_daily_cld)",
+        fileexists("$(_daily_cvd)"),
+        "$(_daily_cvd)",
+        ""
+      );
+
+    "signature_mtime"
+      string => filestat("$(signature_db_path)", "mtime"),
+      if => and(
+        isvariable("signature_db_path"), fileexists("$(signature_db_path)")
+      );
+
+    "signatures_last_updated"
+      string => strftime(
+        "localtime", "%Y-%m-%d %H:%M:%S", "$(signature_mtime)"
+      ),
+      meta => { "inventory", "attribute_name=ClamAV Signatures last updated" },
+      if => isvariable("signature_mtime");
+
+  classes:
+    "scan_data_present" expression => isvariable("infected_files");
+
+    "infections_found"
+      expression => not(strcmp("$(infected_files)", "0")),
+      if => isvariable("infected_files");
+
+    "signatures_present" expression => isvariable("signature_mtime");
+
+  reports:
+    # Always-visible: alerts and missing-data warnings
+    scan_data_present.infections_found::
+      "$(this.bundle): ALERT — ClamAV detected $(infected_files) infected file(s) on $(end_date); see $(report_data)";
+
+    !scan_data_present::
+      "$(this.bundle): ClamAV report not yet available at $(report_data)";
+
+    # Routine status: only with -v
+    default:verbose_mode.scan_data_present.!infections_found::
+      "$(this.bundle): ClamAV scan clean — 0 infected files of $(scanned_files) scanned ($(data_scanned)) on $(end_date)";
+
+    default:verbose_mode.signatures_present::
+      "$(this.bundle): ClamAV signatures last updated $(signatures_last_updated)";
+
+    default:verbose_mode::
+      "ClamAV Engine version: $(engine_version)";
+      "ClamAV Last scan:      $(end_date)";
+      "ClamAV Scanned $(scanned_files) files, $(infected_files) infected, $(data_scanned)";
+      "ClamAV Detected: $(infections)";
+}
