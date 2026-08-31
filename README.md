@@ -2,7 +2,7 @@
 
 CFEngine build module that installs [ClamAV](https://www.clamav.net/) from upstream packages, keeps its signatures fresh, runs periodic scans, and reports the results as CFEngine Enterprise inventory.
 
-![Mission Portal inventory](inventory.png)
+![Mission Portal inventory](https://raw.githubusercontent.com/aleksandrychev/cfengine-clamav/main/inventory.png)
 
 ## What it does
 
