@@ -1,0 +1,88 @@
+{
+    "reports": {
+        "clamav-compliance-report": {
+            "id": "clamav-compliance-report",
+            "type": "compliance",
+            "title": "ClamAV compliance report",
+            "conditions": [
+                "clamav-no-infected-files",
+                "clamav-scan-within-last-week",
+                "clamav-signatures-fresh"
+            ]
+        }
+    },
+    "conditions": {
+        "clamav-no-infected-files": {
+            "id": "clamav-no-infected-files",
+            "name": "ClamAV: no infected files found",
+            "description": "The most recent ClamAV scan reported its results, and the number of infected files is 0.",
+            "type": "inventory",
+            "condition_for": "passing",
+            "rules": [
+                {
+                    "attribute": "ClamAV Infected files",
+                    "operator": "is_reported",
+                    "value": ""
+                },
+                {
+                    "attribute": "ClamAV Infected files",
+                    "operator": "=",
+                    "value": "0"
+                }
+            ],
+            "category": "Security",
+            "severity": "high",
+            "host_filter": null,
+            "filterdata": {
+                "group": null,
+                "filters": {
+                    "filter": [],
+                    "hostFilter": null,
+                    "hostContextInclude": []
+                }
+            }
+        },
+        "clamav-scan-within-last-week": {
+            "id": "clamav-scan-within-last-week",
+            "name": "ClamAV: scan ran within the last week",
+            "description": "A ClamAV scan completed on the host within the last 7 days.",
+            "type": "custom",
+            "condition_for": "passing",
+            "rules": {
+                "sql": "SELECT\n  h.hostkey,\n  h.hostname,\n  h.ipaddress,\n  i.values ->> 'OS' AS os,\n  i.values ->> 'ClamAV last scan completed' AS scan_completed\nFROM\n  hosts h\n  JOIN inventory_new i ON h.hostkey = i.hostkey\nWHERE\n  TO_TIMESTAMP(\n    i.values ->> 'ClamAV last scan completed',\n    'YYYY:MM:DD HH24:MI:SS'\n  ) > CURRENT_TIMESTAMP - INTERVAL '1 week'"
+            },
+            "category": "Security",
+            "severity": "medium",
+            "host_filter": null,
+            "filterdata": {
+                "group": null,
+                "filters": {
+                    "filter": [],
+                    "hostFilter": null,
+                    "hostContextInclude": []
+                }
+            }
+        },
+        "clamav-signatures-fresh": {
+            "id": "clamav-signatures-fresh",
+            "name": "ClamAV: signatures updated within 2 weeks",
+            "description": "The ClamAV virus signature database was updated within the last 14 days.",
+            "type": "custom",
+            "condition_for": "passing",
+            "rules": {
+                "sql": "SELECT\n  h.hostkey,\n  h.hostname,\n  h.ipaddress,\n  i.values ->> 'OS' AS os,\n  i.values ->> 'ClamAV Signatures last updated' AS signatures_updated\nFROM\n  hosts h\n  JOIN inventory_new i ON h.hostkey = i.hostkey\nWHERE\n  TO_TIMESTAMP(\n    i.values ->> 'ClamAV Signatures last updated',\n    'YYYY-MM-DD HH24:MI:SS'\n  ) > CURRENT_TIMESTAMP - INTERVAL '2 weeks'"
+            },
+            "category": "Security",
+            "severity": "low",
+            "host_filter": null,
+            "filterdata": {
+                "group": null,
+                "filters": {
+                    "filter": [],
+                    "hostFilter": null,
+                    "hostContextInclude": []
+                }
+            }
+        }
+    }
+}

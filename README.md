@@ -42,6 +42,10 @@ cf-agent -KI --define clamav:want_scan_now      # force a scan
 cf-agent -KI --define clamav:want_freshen_now   # force a signature update
 ```
 
+## Compliance report
+
+This module contains a ready-made Mission Portal compliance report covering infections, scan recency, and signature freshness - see [compliance-report/README.md](https://github.com/aleksandrychev/cfengine-clamav/blob/main/compliance-report/README.md).
+
 ## Notes
 
 - `clamscan` and `freshclam` load the full signature database into memory, ensure at least **~2 GB of available RAM** on scanned hosts.
