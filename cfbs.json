@@ -6,12 +6,7 @@
     "clamav": {
       "description": "Automates the installation, scanning, and reporting of ClamAV antivirus software.",
       "dependencies": ["compliance-report-imports"],
-      "tags": [
-        "compliance",
-        "experimental",
-        "inventory",
-        "security"
-      ],
+      "tags": ["compliance", "experimental", "inventory", "security"],
       "repo": "https://github.com/aleksandrychev/cfengine-clamav",
       "by": "https://github.com/aleksandrychev",
       "steps": [

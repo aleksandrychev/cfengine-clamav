@@ -1,5 +1,7 @@
 # cfengine-clamav
 
+[![CI](https://github.com/aleksandrychev/cfengine-clamav/actions/workflows/ci.yml/badge.svg)](https://github.com/aleksandrychev/cfengine-clamav/actions/workflows/ci.yml)
+
 CFEngine build module that installs [ClamAV](https://www.clamav.net/) from upstream packages, keeps its signatures fresh, runs periodic scans, and reports the results as CFEngine Enterprise inventory.
 
 ![Mission Portal inventory](https://raw.githubusercontent.com/aleksandrychev/cfengine-clamav/main/inventory.png)

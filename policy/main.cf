@@ -52,12 +52,7 @@ bundle agent globals
 
       "exclude_dirs"
         slist => {
-          "/proc",
-          "/sys",
-          "/dev",
-          "/run",
-          "/var/lib/clamav",
-          "/var/cfengine",
+          "/proc", "/sys", "/dev", "/run", "/var/lib/clamav", "/var/cfengine",
         },
         unless => isvariable($(this.promiser)),
         comment => "Directory paths clamscan must skip; each is anchored with ^ below. Any override replaces this list entirely.";
@@ -248,9 +243,15 @@ bundle agent freshen_linux
   vars:
     "freshclam" string => "$(globals.freshclam_linux)";
     "marker" string => "$(globals.freshen_marker_linux)";
+
+    # Copied into a local variable first: a $(globals.*) reference nested inside
+    # function arguments does not resolve within this namespace.
+    "max_age_days" string => "$(globals.signature_max_age_days)";
+
     "max_age_hours"
-      string => format("%d", eval("$(globals.signature_max_age_days) * 24", math, infix)),
+      string => format("%d", eval("$(max_age_days) * 24", math, infix)),
       comment => "Input is in days; the marker age below is compared in hours";
+
     "config_path" string => "/usr/local/etc/freshclam.conf";
     "signature_dir" string => "$(globals.signature_dir_linux)";
     "report_dir" string => "$(globals.report_dir_linux)";
