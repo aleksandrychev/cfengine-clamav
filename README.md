@@ -7,7 +7,7 @@ CFEngine build module that installs [ClamAV](https://www.clamav.net/) from upstr
 ## What it does
 
 - Installs the upstream ClamAV `.deb`/`.rpm` from clamav.net (Debian/Ubuntu and RHEL-family, x86_64/aarch64) and creates the `clamav` user.
-- Runs `freshclam` when signatures are older than 48 hours (configurable).
+- Runs `freshclam` when signatures are older than 2 days (configurable).
 - Runs `clamscan` over `/home`, `/root`, `/tmp`, `/var/tmp` when the last report is older than 3 days (configurable).
 - Parses the scan log and inventories: engine version, signature count, scanned files, infected files, data scanned, last scan time, signature freshness, and detected threats. Infections are reported as an alert on every run.
 
@@ -22,18 +22,21 @@ cfbs build
 
 ## Configuration
 
-Override defaults via [augments](https://docs.cfengine.com/docs/lts/reference/language-concepts/augments), e.g.:
+Scan intervals, scan targets, and excluded directories can be set interactively with `cfbs input clamav`. Any default can also be overridden via [augments](https://docs.cfengine.com/docs/lts/reference/language-concepts/augments), e.g.:
 
 ```json
 {
   "variables": {
     "clamav:globals.clamav_version": "1.5.4",
     "clamav:globals.max_age_days": "1",
-    "clamav:globals.signature_max_age_hours": "24",
-    "clamav:globals.scan_target_linux": ["/home", "/srv"]
+    "clamav:globals.signature_max_age_days": "1",
+    "clamav:globals.scan_target": ["/home", "/srv"],
+    "clamav:globals.exclude_dirs": ["/proc", "/sys", "/dev", "/run", "/srv/backup"]
   }
 }
 ```
+
+Entries in `exclude_dirs` are directory paths without a trailing slash. The module anchors each one and passes it to `clamscan --exclude-dir`, which matches it as a path prefix, so `/dev` also covers `/dev/shm`. Setting the list replaces the built-in one (`/proc`, `/sys`, `/dev`, `/run`, `/var/lib/clamav`, `/var/cfengine`), so include any of those you still want.
 
 Trigger actions immediately:
 

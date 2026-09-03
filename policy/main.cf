@@ -27,10 +27,10 @@ bundle agent globals
         unless => isvariable($(this.promiser)),
         comment => "Days the existing scan report may age before a fresh scan is forced.";
 
-      "signature_max_age_hours"
-        string => "48",
+      "signature_max_age_days"
+        string => "2",
         unless => isvariable($(this.promiser)),
-        comment => "Hours between freshclam invocations.";
+        comment => "Days between freshclam invocations.";
 
       "clamav_version"
         string => "1.5.4",
@@ -46,20 +46,21 @@ bundle agent globals
         string => "/usr/local/bin/clamscan",
         unless => isvariable($(this.promiser));
 
-      "scan_target_linux"
+      "scan_target"
         slist => { "/home", "/root", "/tmp", "/var/tmp" },
         unless => isvariable($(this.promiser));
 
-      "exclude_dirs_linux"
+      "exclude_dirs"
         slist => {
-          "^/proc",
-          "^/sys",
-          "^/dev",
-          "^/run",
-          "^/var/lib/clamav",
-          "^/var/cfengine",
+          "/proc",
+          "/sys",
+          "/dev",
+          "/run",
+          "/var/lib/clamav",
+          "/var/cfengine",
         },
-        unless => isvariable($(this.promiser));
+        unless => isvariable($(this.promiser)),
+        comment => "Directory paths clamscan must skip; each is anchored with ^ below. Any override replaces this list entirely.";
 
       "report_dir_linux"
         string => "/var/log/clamav",
@@ -100,12 +101,15 @@ bundle agent globals
         unless => isvariable($(this.promiser));
 
       # Pre-computed args (join/maplist need the slists in the local bundle).
-      "scan_target_linux_str" string => join(" ", "scan_target_linux");
+      "scan_target_str" string => join(" ", "scan_target");
 
-      "_exclude_args_linux"
-        slist => maplist("--exclude-dir=$(this)", "exclude_dirs_linux");
+      # --exclude-dir takes an extended regex matched against the directory
+      # path, so anchor each entry. A user-supplied leading ^ is harmless:
+      # ^^ is equivalent to ^ in POSIX ERE.
+      "_exclude_args"
+        slist => maplist("--exclude-dir=^$(this)", "exclude_dirs");
 
-      "exclude_args_linux" string => join(" ", "_exclude_args_linux");
+      "exclude_args" string => join(" ", "_exclude_args");
 
   classes:
     "clamav_supported_platform"
@@ -226,7 +230,7 @@ bundle agent install_linux_pkg
 
 bundle agent freshen
 # @brief Run freshclam when the last attempt is older than
-# $(globals.signature_max_age_hours) or clamav:want_freshen_now is defined.
+# $(globals.signature_max_age_days) or clamav:want_freshen_now is defined.
 # A marker file is touched on every attempt, success or failure, so retries
 # wait at least that long.
 #
@@ -244,7 +248,9 @@ bundle agent freshen_linux
   vars:
     "freshclam" string => "$(globals.freshclam_linux)";
     "marker" string => "$(globals.freshen_marker_linux)";
-    "max_age_hours" string => "$(globals.signature_max_age_hours)";
+    "max_age_hours"
+      string => format("%d", eval("$(globals.signature_max_age_days) * 24", math, infix)),
+      comment => "Input is in days; the marker age below is compared in hours";
     "config_path" string => "/usr/local/etc/freshclam.conf";
     "signature_dir" string => "$(globals.signature_dir_linux)";
     "report_dir" string => "$(globals.report_dir_linux)";
@@ -323,8 +329,8 @@ bundle agent audit_linux
     "clamscan" string => "$(globals.clamscan_linux)";
     "report_data" string => "$(globals.report_data_linux)";
     "max_age_days" string => "$(globals.max_age_days)";
-    "scan_target_str" string => "$(globals.scan_target_linux_str)";
-    "exclude_args" string => "$(globals.exclude_args_linux)";
+    "scan_target_str" string => "$(globals.scan_target_str)";
+    "exclude_args" string => "$(globals.exclude_args)";
     "_daily_cld" string => "$(globals.signature_dir_linux)/daily.cld";
     "_daily_cvd" string => "$(globals.signature_dir_linux)/daily.cvd";
 
