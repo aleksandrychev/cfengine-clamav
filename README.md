@@ -53,5 +53,5 @@ This module contains a ready-made Mission Portal compliance report covering infe
 
 ## Notes
 
-- `clamscan` and `freshclam` load the full signature database into memory, ensure at least **~2 GB of available RAM** on scanned hosts.
+- `clamscan` and `freshclam` load the full signature database into memory, ensure at least **~2 GB of available RAM** on scanned hosts. On hosts with less memory, add a swap file with the [manage-swap](https://build.cfengine.com/modules/manage-swap/) module.
 - On Debian/Ubuntu, the distro's `clamav-freshclam` daemon locks the signature database while running, which causes the module's `freshclam` runs to fail. Disable it with `systemctl disable --now clamav-freshclam` if CFEngine should manage updates.
